@@ -1,0 +1,51 @@
+From ce5aa95aab592d0724cdf9615fa8a6cd0c789114 Mon Sep 17 00:00:00 2001
+From: "D.R.racer" <drracer@seznam.cz>
+Date: Sat, 14 Nov 2026 20:40:52 +0100
+Subject: [PATCH] ucm2: Fairphone/fp5: enable ADC1 in the VoiceCall verb
+
+The microphone gives only zeros during calls. wcd938x applies its
+SoundWire port switches ('ADC1 Switch' sets a port channel mask) only
+when the capture stream is set up: wcd938x_sdw_hw_params() passes the
+mask to sdw_stream_add_slave() once, and the SoundWire core cannot add
+ports to a stream that is already prepared or enabled.
+
+On the HiFi -> Voice Call switch the HiFi Mic1 DisableSequence turns
+'ADC1 Switch' off, PulseAudio then opens the capture on
+TX_CODEC_DMA_TX_3, and only about 150 ms later the VoiceCall Mic1
+EnableSequence turns the switch on again. The stream was set up without
+the ADC1 port, and the hostless VoiceMMode1 capture keeps that stream
+running for the whole call.
+
+Turn 'ADC1 Switch' on in the verb EnableSequence, which runs before any
+stream of the new verb opens. The Mic1 device sequences stay as they
+are; setting the switch again there is harmless, and the device
+DisableSequence still turns it off when the verb is left.
+
+This is a workaround for the ordering, not a fix of the underlying
+behaviour of the codec driver.
+
+Assisted-by: LLM
+---
+ ucm2/Fairphone/fp5/VoiceCall.conf | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/ucm2/Fairphone/fp5/VoiceCall.conf b/ucm2/Fairphone/fp5/VoiceCall.conf
+index e577081..dfbf36c 100644
+--- a/ucm2/Fairphone/fp5/VoiceCall.conf
++++ b/ucm2/Fairphone/fp5/VoiceCall.conf
+@@ -7,6 +7,12 @@ SectionVerb {
+ 		cset "name='MultiMedia2 Mixer TX_CODEC_DMA_TX_3' 1"
+ 		cset "name='QUIN_MI2S_RX Voice Mixer VoiceMMode1' 1"
+ 		cset "name='VoiceMMode1 Capture Mixer TX_CODEC_DMA_TX_3' 1"
++
++		# wcd938x applies its SoundWire port switches only when the capture stream is set up. PulseAudio
++		# starts the capture before the Mic1 device EnableSequence runs, and the call helpers then keep
++		# that stream running, so the mic would stay silent for the whole call. Enable the port here,
++		# before any stream opens.
++		cset "name='ADC1 Switch' 1"
+ 	]
+ 
+ 	DisableSequence [
+-- 
+2.55.0
+
